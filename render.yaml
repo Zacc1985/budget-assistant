@@ -9,5 +9,5 @@ services:
         value: production
       - key: PORT
         value: 3000
-      - key: OPENAI_API_KEY
+      - key: XAPI
         sync: false 

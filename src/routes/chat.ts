@@ -1,15 +1,23 @@
 import express from 'express';
 import { getDb } from '../database';
-import OpenAI from 'openai';
 
 const router = express.Router();
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+
+// Check if Grok API key is configured
+if (!process.env.XAPI) {
+  console.warn('Warning: XAPI is not set in environment variables');
+}
 
 // Process natural language query about budget
 router.post('/query', async (req, res) => {
   try {
+    // Check if Grok is configured
+    if (!process.env.XAPI) {
+      return res.status(500).json({ 
+        error: 'Grok API key not configured. Please set XAPI environment variable.' 
+      });
+    }
+
     const { message } = req.body;
     const db = getDb();
 
@@ -21,32 +29,44 @@ router.post('/query', async (req, res) => {
       LEFT JOIN budget_categories c ON t.category_id = c.id
     `);
 
-    // Create context for the AI
+    // Create context for Grok
     const context = {
       budget_categories: categories,
       transactions: transactions
     };
 
-    // Get AI response
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful budget assistant. Use the provided budget data to answer questions and provide insights."
-        },
-        {
-          role: "user",
-          content: `Context: ${JSON.stringify(context)}\n\nUser question: ${message}`
-        }
-      ]
+    // Call Grok API
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.XAPI}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful budget assistant. Use the provided budget data to answer questions and provide insights."
+          },
+          {
+            role: "user",
+            content: `Context: ${JSON.stringify(context)}\n\nUser question: ${message}`
+          }
+        ]
+      })
     });
 
+    const grokResponse = await response.json();
+    
     res.json({
-      response: completion.choices[0].message.content
+      response: grokResponse.choices[0].message.content
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to process query' });
+    console.error('Chat query error:', error);
+    res.status(500).json({ 
+      error: 'Failed to process query',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
