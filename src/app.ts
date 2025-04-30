@@ -5,6 +5,10 @@ import { limiter, validateRequest, securityHeaders } from './middleware/security
 import cors from 'cors';
 import { config } from 'dotenv';
 import { connectDatabase } from './config/database';
+import { budgetRoutes } from './routes/budget';
+import { goalRoutes } from './routes/goals';
+import { analyticsRoutes } from './routes/analytics';
+import { notificationRoutes } from './routes/notifications';
 
 // Load environment variables
 config();
@@ -35,6 +39,10 @@ app.use(cors({
 app.use(express.json({ limit: '10kb' })); // Limit body size
 
 // Routes
+app.use('/api/budget', budgetRoutes);
+app.use('/api/goals', goalRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
