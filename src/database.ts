@@ -15,6 +15,37 @@ if (!fs.existsSync(dataDir)) {
 
 const dbPath = path.join(dataDir, 'budget.db');
 
+// Helper function to run queries with proper error handling
+function runQuery(query: string, params: any[] = []): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      db.run(query, params, function(err) {
+        if (err) {
+          console.error(`Error running query: ${query}`, err);
+          reject(err);
+        } else {
+          console.log(`Query executed successfully: ${query.split('\n')[0]}...`);
+          resolve();
+        }
+      });
+    } catch (error) {
+      console.error(`Exception running query: ${query}`, error);
+      reject(error);
+    }
+  });
+}
+
+async function createTable(tableName: string, schema: string): Promise<void> {
+  try {
+    console.log(`Creating/verifying table: ${tableName}`);
+    await runQuery(schema);
+    console.log(`Table ${tableName} created/verified successfully`);
+  } catch (error) {
+    console.error(`Failed to create table ${tableName}:`, error);
+    throw error;
+  }
+}
+
 export async function setupDatabase(): Promise<void> {
   if (isInitialized) {
     console.log('Database already initialized');
@@ -30,140 +61,107 @@ export async function setupDatabase(): Promise<void> {
   console.log('Setting up database...');
   
   try {
-    db = new sqlite3.Database(dbPath, async (err) => {
-      if (err) {
-        console.error('Error connecting to database:', err);
-        isInitializing = false;
-        return;
-      }
-      console.log('Connected to SQLite database at:', dbPath);
+    // Create database connection
+    db = await new Promise<Database>((resolve, reject) => {
+      const database = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+          console.error('Error connecting to database:', err);
+          reject(err);
+        } else {
+          console.log('Connected to SQLite database at:', dbPath);
+          resolve(database);
+        }
+      });
+    });
+
+    // Enable foreign keys
+    await runQuery('PRAGMA foreign_keys = ON');
+    console.log('Foreign keys enabled');
+
+    // Create tables one by one
+    await createTable('budgets', `
+      CREATE TABLE IF NOT EXISTS budgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL,
+        amount REAL NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await createTable('transactions', `
+      CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER,
+        amount REAL NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (category_id) REFERENCES budgets (id)
+      )
+    `);
+
+    await createTable('goals', `
+      CREATE TABLE IF NOT EXISTS goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        target_amount REAL NOT NULL,
+        current_amount REAL DEFAULT 0,
+        target_date DATE,
+        priority INTEGER NOT NULL,
+        monthly_contribution REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await createTable('budget_rules', `
+      CREATE TABLE IF NOT EXISTS budget_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT NOT NULL UNIQUE,
+        percentage REAL NOT NULL,
+        current_spent REAL DEFAULT 0,
+        monthly_limit REAL NOT NULL,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Insert default rules
+    const defaultRules = [
+      { category: 'Needs', percentage: 50, monthly_limit: 0 },
+      { category: 'Wants', percentage: 30, monthly_limit: 0 },
+      { category: 'Savings', percentage: 20, monthly_limit: 0 }
+    ];
+
+    for (const rule of defaultRules) {
       try {
-        await createTables();
-        isInitialized = true;
-        isInitializing = false;
-        console.log('Database initialization completed successfully');
+        await runQuery(
+          `INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
+           VALUES (?, ?, ?)`,
+          [rule.category, rule.percentage, rule.monthly_limit]
+        );
+        console.log(`Default rule processed for ${rule.category}`);
       } catch (error) {
-        console.error('Error during table creation:', error);
-        isInitializing = false;
-        throw error;
+        console.error(`Error inserting default rule for ${rule.category}:`, error);
+        // Continue with other rules even if one fails
       }
-    });
+    }
+
+    isInitialized = true;
+    console.log('Database initialization completed successfully');
   } catch (error) {
-    console.error('Failed to create database:', error);
-    isInitializing = false;
+    console.error('Database initialization failed:', error);
     throw error;
-  }
-}
-
-async function createTables(): Promise<void> {
-  console.log('Creating database tables...');
-  
-  // Enable foreign keys
-  await new Promise<void>((resolve, reject) => {
-    db.run('PRAGMA foreign_keys = ON', (err) => {
-      if (err) {
-        console.error('Error enabling foreign keys:', err);
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-
-  // Create tables sequentially
-  const tables = [
-    `CREATE TABLE IF NOT EXISTS budgets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category_id INTEGER,
-      amount REAL NOT NULL,
-      description TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (category_id) REFERENCES budgets (id)
-    )`,
-    `CREATE TABLE IF NOT EXISTS goals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      target_amount REAL NOT NULL,
-      current_amount REAL DEFAULT 0,
-      target_date DATE,
-      priority INTEGER NOT NULL,
-      monthly_contribution REAL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS budget_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      category TEXT NOT NULL,
-      percentage REAL NOT NULL,
-      current_spent REAL DEFAULT 0,
-      monthly_limit REAL NOT NULL,
-      last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`
-  ];
-
-  for (const table of tables) {
-    await new Promise<void>((resolve, reject) => {
-      db.run(table, (err) => {
-        if (err) {
-          console.error('Error creating table:', err);
-          reject(err);
-        } else {
-          console.log('Table created successfully');
-          resolve();
-        }
-      });
-    });
-  }
-
-  // Verify tables exist before inserting data
-  await new Promise<void>((resolve, reject) => {
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='budget_rules'", (err, row) => {
-      if (err) {
-        console.error('Error verifying budget_rules table:', err);
-        reject(err);
-      } else if (!row) {
-        reject(new Error('budget_rules table not found after creation'));
-      } else {
-        resolve();
-      }
-    });
-  });
-
-  // Initialize default budget rules
-  const defaultRules = [
-    { category: 'Needs', percentage: 50, monthly_limit: 0 },
-    { category: 'Wants', percentage: 30, monthly_limit: 0 },
-    { category: 'Savings', percentage: 20, monthly_limit: 0 }
-  ];
-
-  for (const rule of defaultRules) {
-    await new Promise<void>((resolve, reject) => {
-      db.run(`
-        INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
-        VALUES (?, ?, ?)
-      `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
-        if (err) {
-          console.error('Error inserting default rule:', err);
-          reject(err);
-        } else {
-          console.log(`Default rule inserted for ${rule.category}`);
-          resolve();
-        }
-      });
-    });
+  } finally {
+    isInitializing = false;
   }
 }
 
 export function getDatabase(): Database {
   if (!db) {
     console.log('Database not initialized, setting up...');
-    setupDatabase();
+    setupDatabase().catch(error => {
+      console.error('Failed to setup database:', error);
+      process.exit(1); // Exit if database setup fails
+    });
   }
   return db;
 } 
