@@ -4,38 +4,59 @@ import { Database } from 'sqlite3';
 let db: Database;
 
 export function setupDatabase(): void {
-  db = new sqlite3.Database('budget.db', (err) => {
-    if (err) {
-      console.error('Error connecting to database:', err);
-      return;
-    }
-    console.log('Connected to SQLite database');
-    createTables();
-  });
+  console.log('Setting up database...');
+  
+  try {
+    db = new sqlite3.Database(':memory:', (err) => {
+      if (err) {
+        console.error('Error connecting to database:', err);
+        return;
+      }
+      console.log('Connected to SQLite database');
+      createTables();
+    });
+  } catch (error) {
+    console.error('Failed to create database:', error);
+  }
 }
 
 function createTables(): void {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS budgets (
+  console.log('Creating database tables...');
+  
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS budgets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category TEXT NOT NULL,
       amount REAL NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS transactions (
+    )`,
+    `CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      budget_id INTEGER,
+      category_id INTEGER,
       amount REAL NOT NULL,
       description TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (budget_id) REFERENCES budgets (id)
-    )
-  `);
+      FOREIGN KEY (category_id) REFERENCES budgets (id)
+    )`
+  ];
+
+  db.serialize(() => {
+    tables.forEach(table => {
+      db.run(table, (err) => {
+        if (err) {
+          console.error('Error creating table:', err);
+        } else {
+          console.log('Table created successfully');
+        }
+      });
+    });
+  });
 }
 
 export function getDatabase(): Database {
+  if (!db) {
+    console.log('Database not initialized, setting up...');
+    setupDatabase();
+  }
   return db;
 } 
