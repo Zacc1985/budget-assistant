@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { budgetRoutes } from './routes/budget';
 import { chatRoutes } from './routes/chat';
+import { goalRoutes } from './routes/goals';
 import { setupDatabase } from './database';
 
 // Load environment variables
@@ -21,11 +22,7 @@ app.use(express.json());
 // Register routes
 app.use('/api/budget', budgetRoutes);
 app.use('/api/chat', chatRoutes);
-
-// Health check endpoint (required by Render)
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'healthy' });
-});
+app.use('/api/goals', goalRoutes);
 
 // Basic route
 app.get('/', (req: Request, res: Response) => {
@@ -34,5 +31,5 @@ app.get('/', (req: Request, res: Response) => {
 
 // Start server
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`Server is running on port ${port}`);
 }); 

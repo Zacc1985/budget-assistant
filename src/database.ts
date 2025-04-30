@@ -1,18 +1,28 @@
 import sqlite3 from 'sqlite3';
 import { Database } from 'sqlite3';
+import path from 'path';
+import fs from 'fs';
 
 let db: Database;
+
+// Ensure the data directory exists
+const dataDir = path.join(__dirname, '..', 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = path.join(dataDir, 'budget.db');
 
 export function setupDatabase(): void {
   console.log('Setting up database...');
   
   try {
-    db = new sqlite3.Database(':memory:', (err) => {
+    db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
         console.error('Error connecting to database:', err);
         return;
       }
-      console.log('Connected to SQLite database');
+      console.log('Connected to SQLite database at:', dbPath);
       createTables();
     });
   } catch (error) {
@@ -37,10 +47,24 @@ function createTables(): void {
       description TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (category_id) REFERENCES budgets (id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS goals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      target_amount REAL NOT NULL,
+      current_amount REAL DEFAULT 0,
+      target_date DATE,
+      priority INTEGER NOT NULL,
+      monthly_contribution REAL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`
   ];
 
   db.serialize(() => {
+    // Enable foreign keys
+    db.run('PRAGMA foreign_keys = ON');
+    
     tables.forEach(table => {
       db.run(table, (err) => {
         if (err) {

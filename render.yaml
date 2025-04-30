@@ -3,10 +3,16 @@ services:
     name: budget-assistant
     env: node
     buildCommand: npm install && npm run build
-    startCommand: npm start
+    startCommand: node dist/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
+      - key: DATABASE_PATH
+        value: /data/budget.db
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
     healthCheckPath: /health 
