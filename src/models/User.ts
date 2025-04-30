@@ -100,19 +100,19 @@ export class UserModel {
         userData.password,
         userData.name,
         JSON.stringify(['password'])
-      ], function(err: Error | null) {
+      ], function(this: RunResult, err: Error | null) {
         if (err) {
           reject(err);
           return;
         }
         
-        // Get the created user using the class's db instance
-        this.db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err: Error | null, row: any) => {
+        const db = getDatabase();
+        db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err: Error | null, row: any) => {
           if (err) {
             reject(err);
             return;
           }
-          resolve(this.parseRow(row));
+          resolve(UserModel.parseRow(row));
         });
       });
     });
@@ -160,7 +160,7 @@ export class UserModel {
     });
   }
 
-  private parseRow(row: any): User {
+  private static parseRow(row: any): User {
     return {
       ...row,
       loginMethods: JSON.parse(row.loginMethods),

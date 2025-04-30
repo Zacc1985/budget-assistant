@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
+import type { AxiosRequestConfig } from 'axios';
 import https from 'https';
 import { getDatabase } from '../database';
 import { Database } from 'sqlite3';
@@ -35,9 +36,18 @@ interface BudgetSummary {
   transactions: Transaction[];
 }
 
+interface GrokResponse {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+}
+
 const router = express.Router();
 
 // Configure axios for SSL
+// @ts-ignore
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({
     rejectUnauthorized: false // Note: This is not recommended for production
@@ -197,130 +207,39 @@ You have the following capabilities:
 1. Create new financial goals
 2. Update existing goals (amounts, dates, priorities)
 3. Track goal progress
-4. Delete goals
-5. Analyze affordability of purchases
-6. Suggest goal adjustments
-7. Calculate impact of financial decisions
-8. Use local ML insights for better predictions
-9. Monitor and enforce the 50/30/20 budget rule
-10. Provide proactive spending guidance
+4. Delete goals`;
 
-When responding to the user:
-1. Be proactive in suggesting goal adjustments
-2. Calculate and explain the impact of decisions
-3. Provide specific, actionable advice
-4. Consider all goals when making recommendations
-5. Suggest optimal monthly contributions
-6. Warn about potential conflicts between goals
-7. Reference local ML insights when relevant
-8. Monitor budget rule compliance
-9. Suggest adjustments to stay within budget rules
-10. Provide early warnings about overspending
-
-You can use these commands to manage goals:
-- create_goal: Create a new financial goal
-- update_goal: Modify an existing goal
-- update_progress: Update goal progress
-- delete_goal: Remove a goal
-
-Format your responses to include:
-1. Direct answer to the user's question
-2. Analysis of impact on goals
-3. Specific recommendations
-4. Proactive suggestions for improvement
-5. Local ML insights when relevant
-6. Budget rule compliance status
-7. Early warnings if needed
-
-Remember to be specific and reference actual numbers from their data.`;
-
-    console.log('Calling Grok API with system message:', systemMessage);
-
-    const response = await axiosInstance.post('https://api.grok.ai/v1/chat/completions', {
-      messages: [
-        {
-          role: 'system',
-          content: systemMessage
-        },
-        {
-          role: 'user',
-          content: message
+    // Call Grok API
+    try {
+      const response = await axiosInstance.post<GrokResponse>('https://api.grok.ai/v1/chat/completions', {
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: message }
+        ],
+        model: 'grok-1',
+        temperature: 0.7
+      }, {
+        headers: {
+          'Authorization': `Bearer ${process.env.XAPI}`,
+          'Content-Type': 'application/json'
         }
-      ]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.XAPI}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    // Get Grok's response
-    let grokResponse = response.data.choices[0].message.content;
-
-    // Process Grok's response for any goal management actions
-    if (grokResponse.includes('create_goal:') || 
-        grokResponse.includes('update_goal:') || 
-        grokResponse.includes('update_progress:') || 
-        grokResponse.includes('delete_goal:')) {
-      
-      // Extract the command and data
-      const commandMatch = grokResponse.match(/(\w+):\s*({[\s\S]*?})/);
-      if (commandMatch) {
-        const [_, action, dataStr] = commandMatch;
-        try {
-          const data = JSON.parse(dataStr);
-          await manageGoals(action, data);
-        } catch (error) {
-          console.error('Error processing goal management command:', error);
-        }
-      }
-    }
-
-    // Learn from the interaction
-    if (message.toLowerCase().includes('spent') || message.toLowerCase().includes('bought')) {
-      // Extract amount and description using regex
-      const amountMatch = message.match(/\$(\d+(\.\d{2})?)/);
-      const descriptionMatch = message.match(/(?:spent|bought|purchased)\s+([^,.]+)/i);
-      
-      if (amountMatch && descriptionMatch) {
-        const amount = parseFloat(amountMatch[1]);
-        const description = descriptionMatch[1].trim();
-        
-        // Get category prediction from local ML
-        const { category, confidence } = await localML.predictCategory(description, amount);
-        
-        // Check affordability
-        const affordability = await localML.checkPurchaseAffordability(amount, category);
-        
-        // Learn from this transaction
-        await localML.learnFromTransaction(description, category, amount);
-
-        // Add affordability information to Grok's response
-        if (!grokResponse.includes(affordability.recommendation)) {
-          grokResponse += `\n\n${affordability.recommendation}`;
-        }
-      }
-    }
-
-    console.log('Grok API response received');
-    res.json(response.data);
-  } catch (error) {
-    console.error('Error in chat endpoint:', error);
-    if (error instanceof AxiosError) {
-      console.error('Grok API error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
       });
+
+      const grokResponse = response.data.choices[0].message.content;
+      res.json({ response: grokResponse });
+    } catch (error: any) {
+      console.error('Error:', error);
       res.status(500).json({ 
-        error: 'Failed to process query',
-        details: error.message,
-        status: error.response?.status
+        error: 'An error occurred',
+        details: error.message
       });
-    } else {
-      console.error('Unexpected error:', error);
-      res.status(500).json({ error: 'An unexpected error occurred' });
     }
+  } catch (error: any) {
+    console.error('Server error:', error.message);
+    res.status(500).json({ 
+      error: 'An error occurred',
+      details: error.message
+    });
   }
 });
 
@@ -352,7 +271,7 @@ Keep the analysis concise and actionable.`;
 
     console.log('Calling Grok API for insights');
 
-    const response = await axiosInstance.post('https://api.grok.ai/v1/chat/completions', {
+    const response = await axiosInstance.post<GrokResponse>('https://api.grok.ai/v1/chat/completions', {
       messages: [
         {
           role: 'system',
@@ -372,23 +291,12 @@ Keep the analysis concise and actionable.`;
 
     console.log('Grok API insights received');
     res.json(response.data);
-  } catch (error) {
-    console.error('Error generating insights:', error);
-    if (error instanceof AxiosError) {
-      console.error('Grok API error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-      res.status(500).json({ 
-        error: 'Failed to generate insights',
-        details: error.message,
-        status: error.response?.status
-      });
-    } else {
-      console.error('Unexpected error:', error);
-      res.status(500).json({ error: 'An unexpected error occurred' });
-    }
+  } catch (error: any) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: 'An error occurred',
+      details: error.message
+    });
   }
 });
 
@@ -459,7 +367,7 @@ Only return the JSON data, no additional text.`;
 
     console.log('Fetching bank statements from Grok');
 
-    const response = await axiosInstance.post('https://api.grok.ai/v1/chat/completions', {
+    const response = await axiosInstance.post<GrokResponse>('https://api.grok.ai/v1/chat/completions', {
       messages: [
         {
           role: 'system',
@@ -505,17 +413,12 @@ Only return the JSON data, no additional text.`;
       message: 'Bank statements processed successfully',
       transactionsProcessed: transactions.length
     });
-  } catch (error) {
-    console.error('Error processing bank statements:', error);
-    if (error instanceof AxiosError) {
-      res.status(500).json({ 
-        error: 'Failed to fetch bank statements',
-        details: error.message,
-        status: error.response?.status
-      });
-    } else {
-      res.status(500).json({ error: 'An unexpected error occurred' });
-    }
+  } catch (error: any) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: 'An error occurred',
+      details: error.message
+    });
   }
 });
 
@@ -540,9 +443,12 @@ router.get('/transactions', async (req: Request, res: Response) => {
       total: transactions.length,
       totalAmount: transactions.reduce((sum, tx) => sum + tx.amount, 0)
     });
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    res.status(500).json({ error: 'Failed to fetch transactions' });
+  } catch (error: any) {
+    console.error('Error:', error);
+    res.status(500).json({ 
+      error: 'An error occurred',
+      details: error.message
+    });
   }
 });
 
