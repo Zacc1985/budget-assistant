@@ -29,14 +29,17 @@ interface BudgetRule {
 class LocalML {
   private db: Database | null = null;
   private isInitializing = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.initialize().catch(error => {
+    // Create the initialization promise but don't await it here
+    this.initPromise = this.initialize().catch(error => {
       console.error('Failed to initialize LocalML:', error);
+      throw error;
     });
   }
 
-  private async initialize() {
+  private async initialize(): Promise<void> {
     if (this.isInitializing) {
       console.log('LocalML initialization already in progress...');
       return;
@@ -45,7 +48,27 @@ class LocalML {
     this.isInitializing = true;
     try {
       console.log('Initializing LocalML...');
-      this.db = getDatabase();
+      
+      // Wait for database to be ready
+      await new Promise<void>((resolve) => {
+        const checkDb = () => {
+          try {
+            const database = getDatabase();
+            if (database) {
+              this.db = database;
+              resolve();
+            } else {
+              setTimeout(checkDb, 100);
+            }
+          } catch (error) {
+            console.log('Database not ready yet, retrying...');
+            setTimeout(checkDb, 100);
+          }
+        };
+        checkDb();
+      });
+
+      console.log('Database connection established for LocalML');
       await this.initializeTables();
       console.log('LocalML initialization completed');
     } catch (error) {
@@ -56,12 +79,14 @@ class LocalML {
     }
   }
 
-  private async waitForInitialization() {
-    if (!this.db) {
-      console.log('Waiting for database initialization...');
-      await this.initialize();
+  private async waitForInitialization(): Promise<Database> {
+    if (this.initPromise) {
+      await this.initPromise;
     }
-    return this.db!;
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    return this.db;
   }
 
   private async initializeTables() {
@@ -71,7 +96,7 @@ class LocalML {
     const tables = [
       `CREATE TABLE IF NOT EXISTS transaction_patterns (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        description TEXT NOT NULL,
+        description TEXT NOT NULL UNIQUE,
         category TEXT NOT NULL,
         amount REAL NOT NULL,
         frequency INTEGER DEFAULT 1,
@@ -80,7 +105,7 @@ class LocalML {
       )`,
       `CREATE TABLE IF NOT EXISTS spending_patterns (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL,
+        category TEXT NOT NULL UNIQUE,
         average_amount REAL NOT NULL,
         monthly_frequency REAL NOT NULL,
         day_of_month TEXT,
@@ -89,7 +114,7 @@ class LocalML {
       )`,
       `CREATE TABLE IF NOT EXISTS ml_budget_rules (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL,
+        category TEXT NOT NULL UNIQUE,
         percentage REAL NOT NULL,
         current_spent REAL DEFAULT 0,
         monthly_limit REAL NOT NULL,
@@ -98,16 +123,22 @@ class LocalML {
     ];
 
     for (const table of tables) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(table, (err) => {
-          if (err) {
-            console.error('Error creating table:', err);
-            reject(err);
-          } else {
-            resolve();
-          }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          db.run(table, (err) => {
+            if (err) {
+              console.error('Error creating table:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
         });
-      });
+        console.log('Table created successfully:', table.split('\n')[0]);
+      } catch (error) {
+        console.error('Failed to create table:', error);
+        throw error;
+      }
     }
 
     console.log('ML tables initialized');
@@ -125,19 +156,25 @@ class LocalML {
     ];
 
     for (const rule of defaultRules) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(`
-          INSERT OR IGNORE INTO ml_budget_rules (category, percentage, monthly_limit)
-          VALUES (?, ?, ?)
-        `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
-          if (err) {
-            console.error('Error inserting budget rule:', err);
-            reject(err);
-          } else {
-            resolve();
-          }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          db.run(`
+            INSERT OR IGNORE INTO ml_budget_rules (category, percentage, monthly_limit)
+            VALUES (?, ?, ?)
+          `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
+            if (err) {
+              console.error('Error inserting budget rule:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
         });
-      });
+        console.log(`Default rule processed for ${rule.category}`);
+      } catch (error) {
+        console.error(`Error inserting default rule for ${rule.category}:`, error);
+        // Continue with other rules even if one fails
+      }
     }
     console.log('ML budget rules initialized');
   }
@@ -251,8 +288,9 @@ class LocalML {
 
   // Learn from a new transaction
   async learnFromTransaction(description: string, category: string, amount: number) {
+    const db = await this.waitForInitialization();
     // Update transaction pattern
-    await this.db!.run(`
+    await db.run(`
       INSERT INTO transaction_patterns (description, category, amount, frequency)
       VALUES (?, ?, ?, 1)
       ON CONFLICT(description) DO UPDATE SET
@@ -265,7 +303,7 @@ class LocalML {
     await this.updateSpendingPattern(category, amount);
 
     // Update budget rule
-    await this.db!.run(`
+    await db.run(`
       UPDATE ml_budget_rules 
       SET current_spent = current_spent + ?,
           last_updated = CURRENT_TIMESTAMP
@@ -275,10 +313,11 @@ class LocalML {
 
   // Update spending patterns
   private async updateSpendingPattern(category: string, amount: number) {
+    const db = await this.waitForInitialization();
     const today = new Date();
     const dayOfMonth = today.getDate();
 
-    await this.db!.run(`
+    await db.run(`
       INSERT INTO spending_patterns (category, average_amount, monthly_frequency, day_of_month, confidence)
       VALUES (?, ?, 1, ?, 0.5)
       ON CONFLICT(category) DO UPDATE SET
@@ -295,8 +334,9 @@ class LocalML {
 
   // Predict category for a new transaction
   async predictCategory(description: string, amount: number): Promise<{ category: string; confidence: number }> {
+    const db = await this.waitForInitialization();
     return new Promise((resolve, reject) => {
-      this.db!.get<TransactionPattern>(
+      db.get<TransactionPattern>(
         `SELECT category, confidence
         FROM transaction_patterns
         WHERE description LIKE ?
@@ -318,7 +358,7 @@ class LocalML {
           }
 
           // If no exact match, look for similar spending patterns
-          this.db!.get<SpendingPattern>(
+          db.get<SpendingPattern>(
             `SELECT category, confidence
             FROM spending_patterns
             WHERE ABS(average_amount - ?) < 100
@@ -344,8 +384,9 @@ class LocalML {
 
   // Get spending insights
   async getSpendingInsights(): Promise<SpendingPattern[]> {
+    const db = await this.waitForInitialization();
     return new Promise((resolve, reject) => {
-      this.db!.all<SpendingPattern>(
+      db.all<SpendingPattern>(
         'SELECT * FROM spending_patterns',
         (err, rows: SpendingPattern[]) => {
           if (err) reject(err);
@@ -357,8 +398,9 @@ class LocalML {
 
   // Predict future spending
   async predictFutureSpending(category: string): Promise<{ amount: number; date: Date }> {
+    const db = await this.waitForInitialization();
     return new Promise((resolve, reject) => {
-      this.db!.get<SpendingPattern>(
+      db.get<SpendingPattern>(
         `SELECT average_amount, day_of_month
         FROM spending_patterns
         WHERE category = ?`,
@@ -393,4 +435,14 @@ class LocalML {
   }
 }
 
-export const localML = new LocalML(); 
+// Create a single instance
+const localML = new LocalML();
+
+// Export an async initialization function
+export async function initializeML(): Promise<LocalML> {
+  await localML['initPromise'];
+  return localML;
+}
+
+// Export the instance for backward compatibility
+export { localML }; 
