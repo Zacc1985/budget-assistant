@@ -1,23 +1,26 @@
 {
   "name": "budget-assistant",
   "version": "1.0.0",
-  "description": "Budget Assistant with Grok AI integration",
-  "main": "dist/server.js",
+  "description": "A simple budget management application",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/server.js",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "dev": "ts-node src/server.ts",
-    "postinstall": "npm run build"
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@types/axios": "^0.9.36",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/sqlite3": "^3.1.8",
     "axios": "^1.9.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
+    "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
@@ -27,12 +30,10 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.17.0",
     "@types/otplib": "^7.0.0",
     "ts-node": "^10.9.1",
-    "typescript": "^5.0.4"
+    "typescript": "^4.9.5"
   }
 }

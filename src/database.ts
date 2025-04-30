@@ -1,9 +1,9 @@
 import sqlite3 from 'sqlite3';
-import { Database } from 'sqlite3';
+import { Database, open } from 'sqlite';
 import path from 'path';
 import fs from 'fs';
 
-let db: Database;
+let database: Database;
 let isInitializing = false;
 let isInitialized = false;
 
@@ -19,7 +19,7 @@ const dbPath = path.join(dataDir, 'budget.db');
 function runQuery(query: string, params: any[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
-      db.run(query, params, function(err) {
+      database.run(query, params, function(err) {
         if (err) {
           console.error(`Error running query: ${query}`, err);
           reject(err);
@@ -46,32 +46,24 @@ async function createTable(tableName: string, schema: string): Promise<void> {
   }
 }
 
-export async function setupDatabase(): Promise<void> {
+export const initializeDatabase = async () => {
   if (isInitialized) {
     console.log('Database already initialized');
-    return;
+    return database;
   }
 
   if (isInitializing) {
     console.log('Database initialization in progress...');
-    return;
+    return database;
   }
 
   isInitializing = true;
   console.log('Setting up database...');
   
   try {
-    // Create database connection
-    db = await new Promise<Database>((resolve, reject) => {
-      const database = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-          console.error('Error connecting to database:', err);
-          reject(err);
-        } else {
-          console.log('Connected to SQLite database at:', dbPath);
-          resolve(database);
-        }
-      });
+    database = await open({
+      filename: dbPath,
+      driver: sqlite3.Database
     });
 
     // Enable foreign keys
@@ -91,11 +83,11 @@ export async function setupDatabase(): Promise<void> {
     await createTable('transactions', `
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category_id INTEGER,
+        date TEXT NOT NULL,
+        category TEXT NOT NULL,
         amount REAL NOT NULL,
         description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (category_id) REFERENCES budgets (id)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -153,15 +145,30 @@ export async function setupDatabase(): Promise<void> {
   } finally {
     isInitializing = false;
   }
-}
 
-export function getDatabase(): Database {
-  if (!db) {
-    console.log('Database not initialized, setting up...');
-    setupDatabase().catch(error => {
-      console.error('Failed to setup database:', error);
-      process.exit(1); // Exit if database setup fails
-    });
+  return database;
+};
+
+export const getDatabase = () => {
+  if (!database) {
+    throw new Error('Database not initialized');
   }
-  return db;
-} 
+  return database;
+};
+
+export const db = {
+  async all(query: string, params?: any[]) {
+    const db = getDatabase();
+    return await db.all(query, params);
+  },
+  
+  async get(query: string, params?: any[]) {
+    const db = getDatabase();
+    return await db.get(query, params);
+  },
+  
+  async run(query: string, params?: any[]) {
+    const db = getDatabase();
+    return await db.run(query, params);
+  }
+}; 
