@@ -1,9 +1,15 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { budgetRoutes } from './routes/budget';
+import { chatRoutes } from './routes/chat';
+import { setupDatabase } from './database';
 
 // Load environment variables
 dotenv.config();
+
+// Initialize database
+setupDatabase();
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -11,6 +17,10 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Register routes
+app.use('/api/budget', budgetRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Health check endpoint (required by Render)
 app.get('/health', (req: Request, res: Response) => {
