@@ -30,30 +30,47 @@ export async function setupDatabase(): Promise<void> {
   console.log('Setting up database...');
   
   try {
-    db = new sqlite3.Database(dbPath, (err) => {
+    db = new sqlite3.Database(dbPath, async (err) => {
       if (err) {
         console.error('Error connecting to database:', err);
         isInitializing = false;
         return;
       }
       console.log('Connected to SQLite database at:', dbPath);
-      createTables().then(() => {
+      try {
+        await createTables();
         isInitialized = true;
         isInitializing = false;
-      }).catch(err => {
-        console.error('Error during table creation:', err);
+        console.log('Database initialization completed successfully');
+      } catch (error) {
+        console.error('Error during table creation:', error);
         isInitializing = false;
-      });
+        throw error;
+      }
     });
   } catch (error) {
     console.error('Failed to create database:', error);
     isInitializing = false;
+    throw error;
   }
 }
 
 async function createTables(): Promise<void> {
   console.log('Creating database tables...');
   
+  // Enable foreign keys
+  await new Promise<void>((resolve, reject) => {
+    db.run('PRAGMA foreign_keys = ON', (err) => {
+      if (err) {
+        console.error('Error enabling foreign keys:', err);
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+
+  // Create tables sequentially
   const tables = [
     `CREATE TABLE IF NOT EXISTS budgets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,15 +107,6 @@ async function createTables(): Promise<void> {
     )`
   ];
 
-  // Enable foreign keys
-  await new Promise<void>((resolve, reject) => {
-    db.run('PRAGMA foreign_keys = ON', (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-
-  // Create tables sequentially
   for (const table of tables) {
     await new Promise<void>((resolve, reject) => {
       db.run(table, (err) => {
@@ -113,7 +121,21 @@ async function createTables(): Promise<void> {
     });
   }
 
-  // Initialize default budget rules after all tables are created
+  // Verify tables exist before inserting data
+  await new Promise<void>((resolve, reject) => {
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='budget_rules'", (err, row) => {
+      if (err) {
+        console.error('Error verifying budget_rules table:', err);
+        reject(err);
+      } else if (!row) {
+        reject(new Error('budget_rules table not found after creation'));
+      } else {
+        resolve();
+      }
+    });
+  });
+
+  // Initialize default budget rules
   const defaultRules = [
     { category: 'Needs', percentage: 50, monthly_limit: 0 },
     { category: 'Wants', percentage: 30, monthly_limit: 0 },
@@ -130,6 +152,7 @@ async function createTables(): Promise<void> {
           console.error('Error inserting default rule:', err);
           reject(err);
         } else {
+          console.log(`Default rule inserted for ${rule.category}`);
           resolve();
         }
       });
