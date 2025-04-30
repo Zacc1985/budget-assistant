@@ -58,6 +58,14 @@ function createTables(): void {
       monthly_contribution REAL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS budget_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      percentage REAL NOT NULL,
+      current_spent REAL DEFAULT 0,
+      monthly_limit REAL NOT NULL,
+      last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`
   ];
 
@@ -71,6 +79,24 @@ function createTables(): void {
           console.error('Error creating table:', err);
         } else {
           console.log('Table created successfully');
+        }
+      });
+    });
+
+    // Initialize default budget rules
+    const defaultRules = [
+      { category: 'Needs', percentage: 50, monthly_limit: 0 },
+      { category: 'Wants', percentage: 30, monthly_limit: 0 },
+      { category: 'Savings', percentage: 20, monthly_limit: 0 }
+    ];
+
+    defaultRules.forEach(rule => {
+      db.run(`
+        INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
+        VALUES (?, ?, ?)
+      `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
+        if (err) {
+          console.error('Error inserting default rule:', err);
         }
       });
     });
