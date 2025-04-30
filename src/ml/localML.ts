@@ -27,14 +27,47 @@ interface BudgetRule {
 }
 
 class LocalML {
-  private db: Database;
+  private db: Database | null = null;
+  private isInitializing = false;
 
   constructor() {
-    this.db = getDatabase();
-    this.initializeTables();
+    this.initialize().catch(error => {
+      console.error('Failed to initialize LocalML:', error);
+    });
+  }
+
+  private async initialize() {
+    if (this.isInitializing) {
+      console.log('LocalML initialization already in progress...');
+      return;
+    }
+
+    this.isInitializing = true;
+    try {
+      console.log('Initializing LocalML...');
+      this.db = getDatabase();
+      await this.initializeTables();
+      console.log('LocalML initialization completed');
+    } catch (error) {
+      console.error('Error during LocalML initialization:', error);
+      throw error;
+    } finally {
+      this.isInitializing = false;
+    }
+  }
+
+  private async waitForInitialization() {
+    if (!this.db) {
+      console.log('Waiting for database initialization...');
+      await this.initialize();
+    }
+    return this.db!;
   }
 
   private async initializeTables() {
+    console.log('Initializing ML tables...');
+    const db = await this.waitForInitialization();
+
     const tables = [
       `CREATE TABLE IF NOT EXISTS transaction_patterns (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +87,7 @@ class LocalML {
         confidence REAL DEFAULT 0.5,
         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
-      `CREATE TABLE IF NOT EXISTS budget_rules (
+      `CREATE TABLE IF NOT EXISTS ml_budget_rules (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT NOT NULL,
         percentage REAL NOT NULL,
@@ -65,14 +98,26 @@ class LocalML {
     ];
 
     for (const table of tables) {
-      await this.db.run(table);
+      await new Promise<void>((resolve, reject) => {
+        db.run(table, (err) => {
+          if (err) {
+            console.error('Error creating table:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
     }
 
-    // Initialize default budget rules if they don't exist
+    console.log('ML tables initialized');
     await this.initializeBudgetRules();
   }
 
   private async initializeBudgetRules() {
+    console.log('Initializing ML budget rules...');
+    const db = await this.waitForInitialization();
+
     const defaultRules = [
       { category: 'Needs', percentage: 50, monthly_limit: 0 },
       { category: 'Wants', percentage: 30, monthly_limit: 0 },
@@ -80,32 +125,58 @@ class LocalML {
     ];
 
     for (const rule of defaultRules) {
-      await this.db.run(`
-        INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
-        VALUES (?, ?, ?)
-      `, [rule.category, rule.percentage, rule.monthly_limit]);
+      await new Promise<void>((resolve, reject) => {
+        db.run(`
+          INSERT OR IGNORE INTO ml_budget_rules (category, percentage, monthly_limit)
+          VALUES (?, ?, ?)
+        `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
+          if (err) {
+            console.error('Error inserting budget rule:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
     }
+    console.log('ML budget rules initialized');
   }
 
   // Update monthly limits based on income
   async updateMonthlyLimits(monthlyIncome: number) {
+    const db = await this.waitForInitialization();
     const rules = await this.getBudgetRules();
+    
     for (const rule of rules) {
       const newLimit = (monthlyIncome * rule.percentage) / 100;
-      await this.db.run(`
-        UPDATE budget_rules 
-        SET monthly_limit = ?, last_updated = CURRENT_TIMESTAMP
-        WHERE category = ?
-      `, [newLimit, rule.category]);
+      await new Promise<void>((resolve, reject) => {
+        db.run(`
+          UPDATE ml_budget_rules 
+          SET monthly_limit = ?, last_updated = CURRENT_TIMESTAMP
+          WHERE category = ?
+        `, [newLimit, rule.category], (err) => {
+          if (err) {
+            console.error('Error updating monthly limit:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
     }
   }
 
   // Get current budget rules
   async getBudgetRules(): Promise<BudgetRule[]> {
+    const db = await this.waitForInitialization();
     return new Promise((resolve, reject) => {
-      this.db.all('SELECT * FROM budget_rules', (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows as BudgetRule[]);
+      db.all('SELECT * FROM ml_budget_rules', (err, rows) => {
+        if (err) {
+          console.error('Error getting budget rules:', err);
+          reject(err);
+        } else {
+          resolve(rows as BudgetRule[]);
+        }
       });
     });
   }
@@ -181,7 +252,7 @@ class LocalML {
   // Learn from a new transaction
   async learnFromTransaction(description: string, category: string, amount: number) {
     // Update transaction pattern
-    await this.db.run(`
+    await this.db!.run(`
       INSERT INTO transaction_patterns (description, category, amount, frequency)
       VALUES (?, ?, ?, 1)
       ON CONFLICT(description) DO UPDATE SET
@@ -194,8 +265,8 @@ class LocalML {
     await this.updateSpendingPattern(category, amount);
 
     // Update budget rule
-    await this.db.run(`
-      UPDATE budget_rules 
+    await this.db!.run(`
+      UPDATE ml_budget_rules 
       SET current_spent = current_spent + ?,
           last_updated = CURRENT_TIMESTAMP
       WHERE category = ?
@@ -207,7 +278,7 @@ class LocalML {
     const today = new Date();
     const dayOfMonth = today.getDate();
 
-    await this.db.run(`
+    await this.db!.run(`
       INSERT INTO spending_patterns (category, average_amount, monthly_frequency, day_of_month, confidence)
       VALUES (?, ?, 1, ?, 0.5)
       ON CONFLICT(category) DO UPDATE SET
@@ -225,7 +296,7 @@ class LocalML {
   // Predict category for a new transaction
   async predictCategory(description: string, amount: number): Promise<{ category: string; confidence: number }> {
     return new Promise((resolve, reject) => {
-      this.db.get<TransactionPattern>(
+      this.db!.get<TransactionPattern>(
         `SELECT category, confidence
         FROM transaction_patterns
         WHERE description LIKE ?
@@ -247,7 +318,7 @@ class LocalML {
           }
 
           // If no exact match, look for similar spending patterns
-          this.db.get<SpendingPattern>(
+          this.db!.get<SpendingPattern>(
             `SELECT category, confidence
             FROM spending_patterns
             WHERE ABS(average_amount - ?) < 100
@@ -274,7 +345,7 @@ class LocalML {
   // Get spending insights
   async getSpendingInsights(): Promise<SpendingPattern[]> {
     return new Promise((resolve, reject) => {
-      this.db.all<SpendingPattern>(
+      this.db!.all<SpendingPattern>(
         'SELECT * FROM spending_patterns',
         (err, rows: SpendingPattern[]) => {
           if (err) reject(err);
@@ -287,7 +358,7 @@ class LocalML {
   // Predict future spending
   async predictFutureSpending(category: string): Promise<{ amount: number; date: Date }> {
     return new Promise((resolve, reject) => {
-      this.db.get<SpendingPattern>(
+      this.db!.get<SpendingPattern>(
         `SELECT average_amount, day_of_month
         FROM spending_patterns
         WHERE category = ?`,
