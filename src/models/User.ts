@@ -60,7 +60,7 @@ export class UserModel {
     return new Promise((resolve, reject) => {
       this.db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
         if (err) reject(err);
-        else resolve(row ? this.parseRow(row) : null);
+        else resolve(row ? UserModel.parseRow(row) : null);
       });
     });
   }
@@ -69,7 +69,7 @@ export class UserModel {
     return new Promise((resolve, reject) => {
       this.db.get('SELECT * FROM users WHERE id = ?', [id], (err, row) => {
         if (err) reject(err);
-        else resolve(row ? this.parseRow(row) : null);
+        else resolve(row ? UserModel.parseRow(row) : null);
       });
     });
   }
@@ -78,7 +78,7 @@ export class UserModel {
     return new Promise((resolve, reject) => {
       this.db.get('SELECT * FROM users WHERE biometricId = ?', [biometricId], (err, row) => {
         if (err) reject(err);
-        else resolve(row ? this.parseRow(row) : null);
+        else resolve(row ? UserModel.parseRow(row) : null);
       });
     });
   }
@@ -160,7 +160,7 @@ export class UserModel {
     });
   }
 
-  private static parseRow(row: any): User {
+  static parseRow(row: any): User {
     return {
       ...row,
       loginMethods: JSON.parse(row.loginMethods),

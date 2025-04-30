@@ -21,16 +21,12 @@ async function testAPI() {
         const insightsResponse = await axios.get(`${API_URL}/api/chat/insights`);
         console.log('Insights endpoint response:', insightsResponse.data);
 
-    } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error('API Error:', {
-                message: error.message,
-                response: error.response?.data,
-                status: error.response?.status
-            });
-        } else {
-            console.error('Unexpected error:', error);
-        }
+    } catch (error: any) {
+        console.error('Error details:', {
+            message: error.message,
+            response: error.response?.data,
+            status: error.response?.status
+        });
     }
 }
 

@@ -47,8 +47,8 @@ interface GrokResponse {
 const router = express.Router();
 
 // Configure axios for SSL
-// @ts-ignore
 const axiosInstance = axios.create({
+  // @ts-ignore
   httpsAgent: new https.Agent({
     rejectUnauthorized: false // Note: This is not recommended for production
   })
@@ -336,6 +336,7 @@ Return only the category name, nothing else.`;
       }
     });
 
+    // @ts-ignore
     return response.data.choices[0].message.content.trim();
   } catch (error) {
     console.error('Error categorizing transaction:', error);
