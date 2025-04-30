@@ -69,37 +69,51 @@ function createTables(): void {
     )`
   ];
 
-  db.serialize(() => {
-    // Enable foreign keys
-    db.run('PRAGMA foreign_keys = ON');
-    
-    tables.forEach(table => {
-      db.run(table, (err) => {
-        if (err) {
-          console.error('Error creating table:', err);
-        } else {
-          console.log('Table created successfully');
-        }
-      });
-    });
+  // Enable foreign keys
+  db.run('PRAGMA foreign_keys = ON');
 
-    // Initialize default budget rules
+  // Create tables sequentially
+  const createTablesSequentially = async () => {
+    for (const table of tables) {
+      await new Promise<void>((resolve, reject) => {
+        db.run(table, (err) => {
+          if (err) {
+            console.error('Error creating table:', err);
+            reject(err);
+          } else {
+            console.log('Table created successfully');
+            resolve();
+          }
+        });
+      });
+    }
+
+    // Initialize default budget rules after all tables are created
     const defaultRules = [
       { category: 'Needs', percentage: 50, monthly_limit: 0 },
       { category: 'Wants', percentage: 30, monthly_limit: 0 },
       { category: 'Savings', percentage: 20, monthly_limit: 0 }
     ];
 
-    defaultRules.forEach(rule => {
-      db.run(`
-        INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
-        VALUES (?, ?, ?)
-      `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
-        if (err) {
-          console.error('Error inserting default rule:', err);
-        }
+    for (const rule of defaultRules) {
+      await new Promise<void>((resolve, reject) => {
+        db.run(`
+          INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
+          VALUES (?, ?, ?)
+        `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
+          if (err) {
+            console.error('Error inserting default rule:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
       });
-    });
+    }
+  };
+
+  createTablesSequentially().catch(err => {
+    console.error('Error during database initialization:', err);
   });
 }
 
