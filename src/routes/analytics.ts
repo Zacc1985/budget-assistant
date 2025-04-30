@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { db } from '../database';
+import { query } from '../database';
 
 const router = Router();
 
 // Get spending analytics
-router.get('/spending', async (req, res) => {
+router.get('/spending', (req, res) => {
   try {
-    const spending = await db.all(`
+    const spending = query.all(`
       SELECT category, SUM(amount) as total
       FROM transactions
       GROUP BY category
@@ -18,9 +18,9 @@ router.get('/spending', async (req, res) => {
 });
 
 // Get monthly summary
-router.get('/monthly', async (req, res) => {
+router.get('/monthly', (req, res) => {
   try {
-    const monthly = await db.all(`
+    const monthly = query.all(`
       SELECT 
         strftime('%Y-%m', date) as month,
         SUM(amount) as total

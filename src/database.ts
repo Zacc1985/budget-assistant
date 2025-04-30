@@ -1,9 +1,8 @@
-import sqlite3 from 'sqlite3';
-import { Database, open } from 'sqlite';
+import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-let database: Database;
+let database: Database.Database;
 let isInitializing = false;
 let isInitialized = false;
 
@@ -19,15 +18,11 @@ const dbPath = path.join(dataDir, 'budget.db');
 function runQuery(query: string, params: any[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
-      database.run(query, params, function(err) {
-        if (err) {
-          console.error(`Error running query: ${query}`, err);
-          reject(err);
-        } else {
-          console.log(`Query executed successfully: ${query.split('\n')[0]}...`);
-          resolve();
-        }
-      });
+      const database = getDatabase();
+      const stmt = database.prepare(query);
+      stmt.run(params);
+      console.log(`Query executed successfully: ${query.split('\n')[0]}...`);
+      resolve();
     } catch (error) {
       console.error(`Exception running query: ${query}`, error);
       reject(error);
@@ -46,129 +41,61 @@ async function createTable(tableName: string, schema: string): Promise<void> {
   }
 }
 
-export const initializeDatabase = async () => {
-  if (isInitialized) {
-    console.log('Database already initialized');
+export const initializeDatabase = () => {
+  if (database) {
     return database;
   }
 
-  if (isInitializing) {
-    console.log('Database initialization in progress...');
-    return database;
-  }
+  const dbPath = path.join(process.cwd(), 'budget.db');
+  database = new Database(dbPath);
 
-  isInitializing = true;
-  console.log('Setting up database...');
-  
-  try {
-    database = await open({
-      filename: dbPath,
-      driver: sqlite3.Database
-    });
+  // Enable foreign keys
+  database.pragma('foreign_keys = ON');
 
-    // Enable foreign keys
-    await runQuery('PRAGMA foreign_keys = ON');
-    console.log('Foreign keys enabled');
+  // Create tables
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 
-    // Create tables one by one
-    await createTable('budgets', `
-      CREATE TABLE IF NOT EXISTS budgets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL,
-        amount REAL NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await createTable('transactions', `
-      CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        category TEXT NOT NULL,
-        amount REAL NOT NULL,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await createTable('goals', `
-      CREATE TABLE IF NOT EXISTS goals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        target_amount REAL NOT NULL,
-        current_amount REAL DEFAULT 0,
-        target_date DATE,
-        priority INTEGER NOT NULL,
-        monthly_contribution REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await createTable('budget_rules', `
-      CREATE TABLE IF NOT EXISTS budget_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL UNIQUE,
-        percentage REAL NOT NULL,
-        current_spent REAL DEFAULT 0,
-        monthly_limit REAL NOT NULL,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Insert default rules
-    const defaultRules = [
-      { category: 'Needs', percentage: 50, monthly_limit: 0 },
-      { category: 'Wants', percentage: 30, monthly_limit: 0 },
-      { category: 'Savings', percentage: 20, monthly_limit: 0 }
-    ];
-
-    for (const rule of defaultRules) {
-      try {
-        await runQuery(
-          `INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
-           VALUES (?, ?, ?)`,
-          [rule.category, rule.percentage, rule.monthly_limit]
-        );
-        console.log(`Default rule processed for ${rule.category}`);
-      } catch (error) {
-        console.error(`Error inserting default rule for ${rule.category}:`, error);
-        // Continue with other rules even if one fails
-      }
-    }
-
-    isInitialized = true;
-    console.log('Database initialization completed successfully');
-  } catch (error) {
-    console.error('Database initialization failed:', error);
-    throw error;
-  } finally {
-    isInitializing = false;
-  }
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      budget REAL NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 
   return database;
 };
 
 export const getDatabase = () => {
   if (!database) {
-    throw new Error('Database not initialized');
+    return initializeDatabase();
   }
   return database;
 };
 
-export const db = {
-  async all(query: string, params?: any[]) {
+type QueryResult<T> = T extends any[] ? T : T | undefined;
+
+export const query = {
+  all: <T extends any[]>(sql: string, params?: any[]): T => {
     const db = getDatabase();
-    return await db.all(query, params);
+    return db.prepare(sql).all(params || []) as T;
   },
   
-  async get(query: string, params?: any[]) {
+  get: <T>(sql: string, params?: any[]): T | undefined => {
     const db = getDatabase();
-    return await db.get(query, params);
+    return db.prepare(sql).get(params || []) as T | undefined;
   },
   
-  async run(query: string, params?: any[]) {
+  run: (sql: string, params?: any[]) => {
     const db = getDatabase();
-    return await db.run(query, params);
+    return db.prepare(sql).run(params || []);
   }
 }; 

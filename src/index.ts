@@ -1,35 +1,28 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import { initializeDatabase } from './database';
+import { analyticsRoutes } from './routes/analytics';
 import { budgetRoutes } from './routes/budget';
-import { chatRoutes } from './routes/chat';
-import { goalRoutes } from './routes/goals';
-import { setupDatabase } from './database';
-
-// Load environment variables
-dotenv.config();
-
-// Initialize database
-setupDatabase();
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Initialize database
+initializeDatabase();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Register routes
+// Routes
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api/budget', budgetRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/goals', goalRoutes);
 
-// Basic route
-app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'Budget Assistant API is running' });
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
-// Start server
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 }); 
