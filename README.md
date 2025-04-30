@@ -1,30 +1,53 @@
-# Budget Assistant
+# Budget Assistant Application
 
-A budget management application that combines natural language processing with visual budget tracking.
+A simple budget management application with Grok AI integration to help manage your finances.
 
-## Features
-
-- Natural language interface for budget queries and updates
-- Visual display of budget categories and transactions
-- SQLite database for data persistence
-- RESTful API for budget management
-
-## Setup
+## Setup Instructions
 
 1. Install dependencies:
 ```bash
 npm install
 ```
 
-2. Create a `.env` file in the root directory with your OpenAI API key:
+2. Set up environment variables:
+Create a `.env` file in the root directory with:
 ```
-OPENAI_API_KEY=your_api_key_here
 PORT=3000
+XAPI=your_grok_api_key_here
 ```
 
-3. Start the development server:
+3. Run the development server:
 ```bash
 npm run dev
+```
+
+4. Build for production:
+```bash
+npm run build
+```
+
+5. Start production server:
+```bash
+npm start
+```
+
+## Features
+- Budget tracking
+- AI-powered financial advice using Grok
+- SQLite database for data storage
+- RESTful API endpoints
+
+## Project Structure
+```
+budget-assistant/
+├── src/
+│   ├── index.ts         # Main application entry
+│   ├── database.ts      # Database configuration
+│   └── routes/          # API routes
+├── dist/                # Compiled JavaScript
+├── package.json         # Dependencies and scripts
+├── tsconfig.json        # TypeScript configuration
+└── render.yaml         # Render deployment configuration
 ```
 
 ## API Endpoints
