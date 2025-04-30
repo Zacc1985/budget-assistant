@@ -1,5 +1,5 @@
-import express from 'express';
-import axios from 'axios';
+import express, { Request, Response } from 'express';
+import axios, { AxiosError } from 'axios';
 
 const router = express.Router();
 
@@ -9,7 +9,7 @@ if (!process.env.XAPI) {
 }
 
 // Process natural language queries
-router.post('/query', async (req, res) => {
+router.post('/query', async (req: Request, res: Response) => {
   const { message } = req.body;
   if (!message) {
     res.status(400).json({ error: 'Message is required' });
@@ -37,8 +37,13 @@ router.post('/query', async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error('Error calling Grok API:', error);
-    res.status(500).json({ error: 'Failed to process query' });
+    if (error instanceof AxiosError) {
+      console.error('Error calling Grok API:', error.message);
+      res.status(500).json({ error: error.message || 'Failed to process query' });
+    } else {
+      console.error('Unexpected error:', error);
+      res.status(500).json({ error: 'An unexpected error occurred' });
+    }
   }
 });
 
