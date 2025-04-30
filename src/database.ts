@@ -4,6 +4,8 @@ import path from 'path';
 import fs from 'fs';
 
 let db: Database;
+let isInitializing = false;
+let isInitialized = false;
 
 // Ensure the data directory exists
 const dataDir = path.join(__dirname, '..', 'data');
@@ -13,24 +15,43 @@ if (!fs.existsSync(dataDir)) {
 
 const dbPath = path.join(dataDir, 'budget.db');
 
-export function setupDatabase(): void {
+export async function setupDatabase(): Promise<void> {
+  if (isInitialized) {
+    console.log('Database already initialized');
+    return;
+  }
+
+  if (isInitializing) {
+    console.log('Database initialization in progress...');
+    return;
+  }
+
+  isInitializing = true;
   console.log('Setting up database...');
   
   try {
     db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
         console.error('Error connecting to database:', err);
+        isInitializing = false;
         return;
       }
       console.log('Connected to SQLite database at:', dbPath);
-      createTables();
+      createTables().then(() => {
+        isInitialized = true;
+        isInitializing = false;
+      }).catch(err => {
+        console.error('Error during table creation:', err);
+        isInitializing = false;
+      });
     });
   } catch (error) {
     console.error('Failed to create database:', error);
+    isInitializing = false;
   }
 }
 
-function createTables(): void {
+async function createTables(): Promise<void> {
   console.log('Creating database tables...');
   
   const tables = [
@@ -70,51 +91,50 @@ function createTables(): void {
   ];
 
   // Enable foreign keys
-  db.run('PRAGMA foreign_keys = ON');
+  await new Promise<void>((resolve, reject) => {
+    db.run('PRAGMA foreign_keys = ON', (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
 
   // Create tables sequentially
-  const createTablesSequentially = async () => {
-    for (const table of tables) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(table, (err) => {
-          if (err) {
-            console.error('Error creating table:', err);
-            reject(err);
-          } else {
-            console.log('Table created successfully');
-            resolve();
-          }
-        });
+  for (const table of tables) {
+    await new Promise<void>((resolve, reject) => {
+      db.run(table, (err) => {
+        if (err) {
+          console.error('Error creating table:', err);
+          reject(err);
+        } else {
+          console.log('Table created successfully');
+          resolve();
+        }
       });
-    }
+    });
+  }
 
-    // Initialize default budget rules after all tables are created
-    const defaultRules = [
-      { category: 'Needs', percentage: 50, monthly_limit: 0 },
-      { category: 'Wants', percentage: 30, monthly_limit: 0 },
-      { category: 'Savings', percentage: 20, monthly_limit: 0 }
-    ];
+  // Initialize default budget rules after all tables are created
+  const defaultRules = [
+    { category: 'Needs', percentage: 50, monthly_limit: 0 },
+    { category: 'Wants', percentage: 30, monthly_limit: 0 },
+    { category: 'Savings', percentage: 20, monthly_limit: 0 }
+  ];
 
-    for (const rule of defaultRules) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(`
-          INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
-          VALUES (?, ?, ?)
-        `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
-          if (err) {
-            console.error('Error inserting default rule:', err);
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
+  for (const rule of defaultRules) {
+    await new Promise<void>((resolve, reject) => {
+      db.run(`
+        INSERT OR IGNORE INTO budget_rules (category, percentage, monthly_limit)
+        VALUES (?, ?, ?)
+      `, [rule.category, rule.percentage, rule.monthly_limit], (err) => {
+        if (err) {
+          console.error('Error inserting default rule:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
       });
-    }
-  };
-
-  createTablesSequentially().catch(err => {
-    console.error('Error during database initialization:', err);
-  });
+    });
+  }
 }
 
 export function getDatabase(): Database {
