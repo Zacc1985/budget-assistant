@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
 import axios from 'axios';
-import type { AxiosRequestConfig } from 'axios';
 import https from 'https';
 import { getDatabase } from '../database';
 import { Database } from 'sqlite3';
